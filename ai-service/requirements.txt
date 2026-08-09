@@ -1,0 +1,7 @@
+fastapi[all]
+langchain
+langchain-groq
+pydantic-settings
+sqlalchemy[asyncio]
+psycopg[binary]
+alembic
