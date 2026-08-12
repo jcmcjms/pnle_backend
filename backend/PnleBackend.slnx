@@ -3,4 +3,5 @@
   <Project Path="Pnle.Application\Pnle.Application.csproj" />
   <Project Path="Pnle.Domain\Pnle.Domain.csproj" />
   <Project Path="Pnle.Infrastructure\Pnle.Infrastructure.csproj" />
+  <Project Path="Pnle.Tests\Pnle.Tests.csproj" />
 </Solution>

@@ -2,13 +2,6 @@ using Microsoft.Extensions.Options;
 
 namespace Pnle.Api.Auth;
 
-public sealed class AuthCookieOptions
-{
-    public bool CookieSecure { get; init; } = true;
-
-    public string CookieSameSite { get; init; } = "Lax";
-}
-
 public sealed class RefreshCookieWriter(IOptions<AuthCookieOptions> options)
 {
     public const string RefreshCookieName = "pnle_refresh_token";

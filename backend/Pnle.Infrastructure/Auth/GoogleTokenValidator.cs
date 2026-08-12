@@ -7,11 +7,6 @@ using Pnle.Domain.Auth;
 
 namespace Pnle.Infrastructure.Auth;
 
-public sealed class GoogleOptions
-{
-    public required string[] ClientIds { get; init; }
-}
-
 public sealed class GoogleTokenValidator(
     IOptions<GoogleOptions> options,
     ILogger<GoogleTokenValidator> logger)

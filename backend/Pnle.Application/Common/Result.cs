@@ -26,9 +26,3 @@ public class Result
 
     public static Result<TValue> Failure<TValue>(IReadOnlyList<Error> errors) => new(default!, false, errors);
 }
-
-public sealed class Result<TValue>(TValue value, bool isSuccess, IReadOnlyList<Error> errors)
-    : Result(isSuccess, errors)
-{
-    public TValue Value { get; } = value;
-}

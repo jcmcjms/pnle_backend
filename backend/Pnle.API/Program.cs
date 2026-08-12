@@ -7,8 +7,11 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Pnle.Api.Auth;
 using Pnle.Api.Common;
+using Pnle.Api.Tutoring;
 using Pnle.Application.Auth;
 using Pnle.Application.Common;
+using Pnle.Application.Tutoring;
+using Pnle.Infrastructure.Ai;
 using Pnle.Infrastructure.Auth;
 using Pnle.Infrastructure.Persistence;
 
@@ -32,16 +35,32 @@ builder.Services.AddOptions<GoogleOptions>()
 
 builder.Services.AddOptions<JwtOptions>()
     .Bind(builder.Configuration.GetSection("Auth"))
-    .Validate(options => options.SigningKey.Length >= 64,
+    .Validate(options => options.SigningKey is { Length: >= 64 },
         "Auth:SigningKey must be at least 64 characters.")
     .ValidateOnStart();
 
 builder.Services.AddOptions<RefreshTokenOptions>()
     .Bind(builder.Configuration.GetSection("Auth"))
+    .Validate(options => options.RefreshTokenDays is > 0 and <= 365,
+        "Auth:RefreshTokenDays must be between 1 and 365.")
     .ValidateOnStart();
 
 builder.Services.AddOptions<AuthCookieOptions>()
     .Bind(builder.Configuration.GetSection("Auth"))
+    .Validate(options =>
+            Enum.TryParse<SameSiteMode>(options.CookieSameSite, ignoreCase: true, out var sameSite) &&
+            sameSite != SameSiteMode.Unspecified,
+        "Auth:CookieSameSite must be one of: None, Lax, Strict.")
+    .ValidateOnStart();
+
+builder.Services.AddOptions<AiServiceOptions>()
+    .Bind(builder.Configuration.GetSection("AiService"))
+    .Validate(options =>
+            !string.IsNullOrWhiteSpace(options.BaseUrl) &&
+            Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out _),
+        "AiService:BaseUrl must be an absolute URL.")
+    .Validate(options => options.ApiKey is { Length: >= 32 },
+        "AiService:ApiKey must be at least 32 characters.")
     .ValidateOnStart();
 
 // CORS
@@ -71,6 +90,13 @@ builder.Services.AddRateLimiter(options =>
         limiter.PermitLimit = 20;
         limiter.QueueLimit = 0;
     });
+
+    options.AddFixedWindowLimiter("ai", limiter =>
+    {
+        limiter.Window = TimeSpan.FromMinutes(1);
+        limiter.PermitLimit = 30;
+        limiter.QueueLimit = 0;
+    });
 });
 
 // Database
@@ -94,29 +120,47 @@ builder.Services.AddScoped<RefreshSessionHandler>();
 // API services
 builder.Services.AddSingleton<RefreshCookieWriter>();
 
-// JWT authentication
-var jwtOptions = builder.Configuration
-    .GetSection("Auth")
-    .Get<JwtOptions>()
-    ?? throw new InvalidOperationException("Auth configuration is required.");
+// AI tutoring service client
+builder.Services.AddTransient<AiApiKeyDelegatingHandler>();
+
+builder.Services.AddHttpClient<IAiTutorClient, HttpAiTutorClient>(
+        (serviceProvider, client) =>
+        {
+            var options = serviceProvider
+                .GetRequiredService<IOptions<AiServiceOptions>>()
+                .Value;
+
+            client.BaseAddress = new Uri(options.BaseUrl);
+            client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+        })
+    .AddHttpMessageHandler<AiApiKeyDelegatingHandler>();
+
+// JWT authentication - consumes the registered JwtOptions as the single
+// source of truth instead of re-reading the "Auth" configuration section.
+var isDevelopment = builder.Environment.IsDevelopment();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.MapInboundClaims = false;
-        options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+    .AddJwtBearer();
 
-        options.TokenValidationParameters = new TokenValidationParameters
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IOptions<JwtOptions>>((bearerOptions, jwtOptions) =>
+    {
+        var options = jwtOptions.Value;
+
+        bearerOptions.MapInboundClaims = false;
+        bearerOptions.RequireHttpsMetadata = !isDevelopment;
+
+        bearerOptions.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
-            ValidIssuer = jwtOptions.Issuer,
+            ValidIssuer = options.Issuer,
 
             ValidateAudience = true,
-            ValidAudience = jwtOptions.Audience,
+            ValidAudience = options.Audience,
 
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(jwtOptions.SigningKey)),
+                Encoding.UTF8.GetBytes(options.SigningKey)),
 
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromSeconds(30)
@@ -150,5 +194,7 @@ app.UseAuthorization();
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
 
 app.MapAuthEndpoints();
+
+app.MapTutoringEndpoints();
 
 app.Run();

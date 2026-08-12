@@ -8,17 +8,6 @@ using Pnle.Domain.Auth;
 
 namespace Pnle.Infrastructure.Auth;
 
-public sealed class JwtOptions
-{
-    public required string Issuer { get; init; }
-
-    public required string Audience { get; init; }
-
-    public required string SigningKey { get; init; }
-
-    public int AccessTokenMinutes { get; init; } = 15;
-}
-
 public sealed class JwtAccessTokenIssuer(
     IOptions<JwtOptions> options,
     TimeProvider timeProvider)
@@ -34,18 +23,18 @@ public sealed class JwtAccessTokenIssuer(
 
         var claims = new List<Claim>
         {
-            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new(JwtRegisteredClaimNames.Email, user.Email)
+            new(JwtClaimNames.Subject, user.Id.ToString()),
+            new(JwtClaimNames.Email, user.Email)
         };
 
         if (!string.IsNullOrWhiteSpace(user.Name))
         {
-            claims.Add(new Claim("name", user.Name));
+            claims.Add(new Claim(JwtClaimNames.Name, user.Name));
         }
 
         if (!string.IsNullOrWhiteSpace(user.PictureUrl))
         {
-            claims.Add(new Claim("picture", user.PictureUrl));
+            claims.Add(new Claim(JwtClaimNames.Picture, user.PictureUrl));
         }
 
         var signingCredentials = new SigningCredentials(

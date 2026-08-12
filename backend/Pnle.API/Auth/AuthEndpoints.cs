@@ -60,9 +60,9 @@ public static class AuthEndpoints
         RefreshCookieWriter cookieWriter,
         CancellationToken cancellationToken)
     {
-        var refreshToken = httpContext.Request.Cookies[RefreshCookieWriter.RefreshCookieName];
+        var refreshToken = ReadRefreshToken(httpContext);
 
-        if (string.IsNullOrWhiteSpace(refreshToken))
+        if (refreshToken is null)
         {
             return TypedResults.Unauthorized();
         }
@@ -97,9 +97,9 @@ public static class AuthEndpoints
         RefreshCookieWriter cookieWriter,
         CancellationToken cancellationToken)
     {
-        var refreshToken = httpContext.Request.Cookies[RefreshCookieWriter.RefreshCookieName];
+        var refreshToken = ReadRefreshToken(httpContext);
 
-        if (!string.IsNullOrWhiteSpace(refreshToken))
+        if (refreshToken is not null)
         {
             await handler.LogoutAsync(
                 new RefreshSessionCommand(refreshToken),
@@ -113,10 +113,10 @@ public static class AuthEndpoints
 
     private static IResult Me(ClaimsPrincipal user)
     {
-        var sub = user.FindFirst("sub")?.Value;
-        var email = user.FindFirst("email")?.Value;
-        var name = user.FindFirst("name")?.Value;
-        var picture = user.FindFirst("picture")?.Value;
+        var sub = user.FindFirst(JwtClaimNames.Subject)?.Value;
+        var email = user.FindFirst(JwtClaimNames.Email)?.Value;
+        var name = user.FindFirst(JwtClaimNames.Name)?.Value;
+        var picture = user.FindFirst(JwtClaimNames.Picture)?.Value;
 
         if (string.IsNullOrWhiteSpace(sub))
         {
@@ -130,5 +130,12 @@ public static class AuthEndpoints
             name,
             picture
         });
+    }
+
+    private static string? ReadRefreshToken(HttpContext httpContext)
+    {
+        var refreshToken = httpContext.Request.Cookies[RefreshCookieWriter.RefreshCookieName];
+
+        return string.IsNullOrWhiteSpace(refreshToken) ? null : refreshToken;
     }
 }

@@ -1,8 +1,7 @@
 using Pnle.Application.Common;
+using Pnle.Domain.Auth;
 
 namespace Pnle.Application.Auth;
-
-public sealed record RefreshSessionCommand(string RefreshToken);
 
 public sealed class RefreshSessionHandler(
     IRefreshTokenHasher refreshTokenHasher,
@@ -22,21 +21,17 @@ public sealed class RefreshSessionHandler(
             return Result.Failure<AuthSession>(AuthErrors.InvalidRefreshToken);
         }
 
-        var tokenHash = refreshTokenHasher.Hash(command.RefreshToken);
-
-        var storedToken = await refreshTokenRepository.FindByHashAsync(
-            tokenHash,
+        var activeToken = await FindActiveRefreshTokenAsync(
+            command.RefreshToken,
             cancellationToken);
 
-        var now = timeProvider.GetUtcNow();
-
-        if (storedToken is null || !storedToken.IsActive(now))
+        if (activeToken is null)
         {
             return Result.Failure<AuthSession>(AuthErrors.InvalidRefreshToken);
         }
 
         var user = await userRepository.FindByIdAsync(
-            storedToken.UserId,
+            activeToken.Token.UserId,
             cancellationToken);
 
         if (user is null)
@@ -44,9 +39,9 @@ public sealed class RefreshSessionHandler(
             return Result.Failure<AuthSession>(AuthErrors.UserNotFound);
         }
 
-        storedToken.Revoke(now);
+        activeToken.Token.Revoke(activeToken.Now);
 
-        var newRefreshToken = refreshTokenIssuer.Issue(user.Id, now);
+        var newRefreshToken = refreshTokenIssuer.Issue(user.Id, activeToken.Now);
 
         await refreshTokenRepository.AddAsync(newRefreshToken.Entity, cancellationToken);
 
@@ -77,25 +72,38 @@ public sealed class RefreshSessionHandler(
             return Result.Success();
         }
 
-        var tokenHash = refreshTokenHasher.Hash(command.RefreshToken);
+        var activeToken = await FindActiveRefreshTokenAsync(
+            command.RefreshToken,
+            cancellationToken);
+
+        if (activeToken is null)
+        {
+            return Result.Success();
+        }
+
+        activeToken.Token.Revoke(activeToken.Now);
+
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return Result.Success();
+    }
+
+    private async Task<ActiveRefreshToken?> FindActiveRefreshTokenAsync(
+        string rawRefreshToken,
+        CancellationToken cancellationToken)
+    {
+        var tokenHash = refreshTokenHasher.Hash(rawRefreshToken);
 
         var storedToken = await refreshTokenRepository.FindByHashAsync(
             tokenHash,
             cancellationToken);
 
-        if (storedToken is null)
-        {
-            return Result.Success();
-        }
-
         var now = timeProvider.GetUtcNow();
 
-        if (storedToken.IsActive(now))
-        {
-            storedToken.Revoke(now);
-            await unitOfWork.SaveChangesAsync(cancellationToken);
-        }
-
-        return Result.Success();
+        return storedToken is { } token && token.IsActive(now)
+            ? new ActiveRefreshToken(token, now)
+            : null;
     }
+
+    private sealed record ActiveRefreshToken(RefreshToken Token, DateTimeOffset Now);
 }

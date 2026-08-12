@@ -5,11 +5,6 @@ using Pnle.Domain.Auth;
 
 namespace Pnle.Infrastructure.Auth;
 
-public sealed class RefreshTokenOptions
-{
-    public int RefreshTokenDays { get; init; } = 30;
-}
-
 public sealed class RefreshTokenIssuer(
     IOptions<RefreshTokenOptions> options,
     IRefreshTokenHasher refreshTokenHasher)
